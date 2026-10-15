@@ -373,7 +373,11 @@ class SatyaClient:
     def set_goal(self, goal: str, threshold: float = 0.20, halt_threshold: float = 0.10):
         """Sets the project goal and initializes/resets the GoalGuardian."""
         require_agent(self.agent_key)
-        save_goal(self.agent_name, goal, threshold, halt_threshold)
+        saved_path = save_goal(self.agent_name, goal, threshold, halt_threshold)
+        if not saved_path:
+            raise OSError(
+                "Project goal was not persisted. Check data-directory permissions and server logs."
+            )
         self.goal_guardian = GoalGuardian(
             agent_name=self.agent_name,
             goal=goal,
