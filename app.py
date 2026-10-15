@@ -3,7 +3,11 @@ import os
 import sys
 import json
 import html
+import logging
+import math
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
@@ -1062,9 +1066,20 @@ elif page == "Agent Pulse":
         cols = st.columns(min(len(health_scores), 4))
         for idx, (agent_name, hs) in enumerate(health_scores.items()):
             col_target = cols[idx % len(cols)]
-            score = hs.get("score", 0)
-            grade = hs.get("grade", "N/A")
-            trend = hs.get("trend", "stable")
+            try:
+                score = float(hs.get("score", 0))
+                if not math.isfinite(score):
+                    score = 0.0
+            except (TypeError, ValueError):
+                score = 0.0
+            score = min(100.0, max(0.0, score))
+            grade = html.escape(str(hs.get("grade", "N/A")))
+            trend_raw = str(hs.get("trend", "stable")).lower()
+            trend = trend_raw if trend_raw in {"up", "down", "stable"} else "stable"
+            throughput = html.escape(str(hs.get("throughput", 0.0)))
+            rework_rate = html.escape(str(hs.get("rework_rate", 0.0)))
+            log_density = html.escape(str(hs.get("log_density", 0.0)))
+            overrun_rate = html.escape(str(hs.get("overrun_rate", 0.0)))
             trend_icon = "📈" if trend == "up" else "📉" if trend == "down" else "➡️"
             
             # Determine card style based on score
@@ -1084,30 +1099,30 @@ elif page == "Agent Pulse":
             with col_target:
                 # Retrieve goal if set
                 g_data = load_goal(agent_name)
-                goal_str = g_data.get("goal") if g_data else "No project goal set."
+                goal_str = html.escape(str(g_data.get("goal") if g_data else "No project goal set."))
                 st.markdown(f"""
                 <div style="border: 2px solid {border_color}; border-radius: 12px; padding: 1.2rem; background: var(--bg-card); margin-bottom: 1rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
                     <div style="font-size: 1.1rem; font-weight: 700; color: var(--text-primary); margin-bottom: 0.5rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
-                        {agent_name}
+                        {html.escape(str(agent_name))}
                     </div>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
-                        <span style="font-size: 2.2rem; font-weight: 800; color: {text_color};">{score}%</span>
+                        <span style="font-size: 2.2rem; font-weight: 800; color: {text_color};">{score:.1f}%</span>
                         <span style="font-size: 1.2rem; font-weight: 800; background: {border_color}22; padding: 0.2rem 0.6rem; border-radius: 6px; color: {text_color};">{grade}</span>
                     </div>
                     <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
                         Trend: <b>{trend.upper()} {trend_icon}</b>
                     </div>
                     <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.3rem;">
-                        Throughput: {hs.get('throughput', 0.0)} tasks/hr
+                        Throughput: {throughput} tasks/hr
                     </div>
                     <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.3rem;">
-                        Rework Rate: {hs.get('rework_rate', 0.0)}
+                        Rework Rate: {rework_rate}
                     </div>
                     <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.3rem;">
-                        Log Density: {hs.get('log_density', 0.0)} logs/task
+                        Log Density: {log_density} logs/task
                     </div>
                     <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
-                        Time Overrun: {hs.get('overrun_rate', 0.0)}
+                        Time Overrun: {overrun_rate}
                     </div>
                     <div style="font-size: 0.8rem; border-top: 1px solid var(--border-color); padding-top: 0.5rem; color: var(--text-muted); font-style: italic;">
                         Goal: {goal_str}
@@ -1142,16 +1157,19 @@ elif page == "Agent Pulse":
         for agent in agents:
             buckets = priority_buckets.get(agent, {})
             table_html += f'<tr style="border-bottom: 1px solid var(--border-color);">'
-            table_html += f'<td style="padding: 12px; font-weight: 600; color: var(--text-primary);">{agent}</td>'
+            table_html += f'<td style="padding: 12px; font-weight: 600; color: var(--text-primary);">{html.escape(str(agent))}</td>'
             for prio in ["Critical", "High", "Medium", "Low"]:
                 val = buckets.get(prio)
-                if val is None:
-                    table_html += f'<td style="padding: 12px; text-align: center; color: var(--text-muted); background: rgba(0,0,0,0.02);">N/A</td>'
+                try:
+                    numeric_val = float(val)
+                except (TypeError, ValueError):
+                    numeric_val = float("nan")
+                if val is None or not math.isfinite(numeric_val):
+                    table_html += '<td style="padding: 12px; text-align: center; color: var(--text-muted); background: rgba(0,0,0,0.02);">N/A</td>'
                 else:
-                    # Color based on value
-                    bg = "rgba(46, 204, 113, 0.2)" if val < 15 else "rgba(241, 196, 15, 0.2)" if val < 45 else "rgba(231, 76, 60, 0.2)"
-                    color = "#27ae60" if val < 15 else "#d35400" if val < 45 else "#c0392b"
-                    table_html += f'<td style="padding: 12px; text-align: center; background: {bg}; color: {color}; font-weight: 700;">{val:.1f} m</td>'
+                    bg = "rgba(46, 204, 113, 0.2)" if numeric_val < 15 else "rgba(241, 196, 15, 0.2)" if numeric_val < 45 else "rgba(231, 76, 60, 0.2)"
+                    color = "#27ae60" if numeric_val < 15 else "#d35400" if numeric_val < 45 else "#c0392b"
+                    table_html += f'<td style="padding: 12px; text-align: center; background: {bg}; color: {color}; font-weight: 700;">{numeric_val:.1f} m</td>'
             table_html += "</tr>"
         table_html += "</tbody></table>"
         
@@ -1166,7 +1184,11 @@ elif page == "Agent Pulse":
             st.success("✅ No health anomalies or cascade failures detected.")
         else:
             for alert in alerts:
-                severity = alert.get("severity", "warning").upper()
+                severity_raw = str(alert.get("severity", "warning")).upper()
+                severity = severity_raw if severity_raw in {"CRITICAL", "WARNING", "HIGH", "MEDIUM", "LOW"} else "WARNING"
+                alert_type = html.escape(str(alert.get("type", "Unknown")))
+                alert_message = html.escape(str(alert.get("message", "")))
+                alert_agent = html.escape(str(alert.get("agent", "Unknown")))
                 bg_color = "rgba(231, 76, 60, 0.15)" if severity == "CRITICAL" else "rgba(241, 196, 15, 0.15)"
                 border_color = "#e74c3c" if severity == "CRITICAL" else "#f1c40f"
                 text_color = "#e74c3c" if severity == "CRITICAL" else "#d35400"
@@ -1175,10 +1197,10 @@ elif page == "Agent Pulse":
                 <div style="border-left: 5px solid {border_color}; background: {bg_color}; padding: 0.8rem; border-radius: 4px; margin-bottom: 0.8rem; color: var(--text-primary);">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.3rem;">
                         <span style="font-weight: 800; color: {text_color}; font-size: 0.85rem;">{severity} ALERT</span>
-                        <span style="font-size: 0.75rem; color: var(--text-muted);">{alert.get('type')}</span>
+                        <span style="font-size: 0.75rem; color: var(--text-muted);">{alert_type}</span>
                     </div>
-                    <div style="font-size: 0.9rem; font-weight: 600; margin-bottom: 0.2rem;">{alert.get('message')}</div>
-                    <div style="font-size: 0.75rem; color: var(--text-secondary);">Agent: {alert.get('agent')}</div>
+                    <div style="font-size: 0.9rem; font-weight: 600; margin-bottom: 0.2rem;">{alert_message}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-secondary);">Agent: {alert_agent}</div>
                 </div>
                 """, unsafe_allow_html=True)
                 
@@ -1194,9 +1216,16 @@ elif page == "Agent Pulse":
                     submitted = st.form_submit_button("Deploy Goal")
                     if submitted:
                         from src.satya.core.goal_guardian import save_goal
-                        save_goal(selected_agent, new_goal, t_val, h_val)
-                        st.success(f"Goal deployed for {selected_agent}.")
-                        st.rerun()
+                        try:
+                            saved_goal = save_goal(selected_agent, new_goal, t_val, h_val)
+                            if saved_goal is False or saved_goal is None:
+                                st.error("Goal was not saved. Check the data directory permissions and server logs.")
+                            else:
+                                st.success(f"Goal deployed for {html.escape(str(selected_agent))}.")
+                                st.rerun()
+                        except Exception:
+                            logger.exception("Failed to save goal for agent %s", selected_agent)
+                            st.error("Goal could not be saved. Check server logs for details.")
 
         # Display Goal Alerts
         goal_alerts = load_goal_alerts()
@@ -1204,7 +1233,13 @@ elif page == "Agent Pulse":
             st.success("✅ Goal Guardian reports zero agent drifts.")
         else:
             for alert in reversed(goal_alerts[-10:]):
-                action = alert.get("action", "warn").upper()
+                action_raw = str(alert.get("action", "warn")).upper()
+                action = action_raw if action_raw in {"HALT", "WARN"} else "WARN"
+                alert_timestamp = html.escape(str(alert.get("timestamp", ""))[:19].replace("T", " "))
+                alert_score = html.escape(str(alert.get("score", "N/A")))
+                alert_excerpt = html.escape(str(alert.get("message_excerpt", "")))
+                alert_goal = html.escape(str(alert.get("goal", "")))
+                alert_snapshot = html.escape(str(alert.get("snapshot_path", "")))
                 bg_color = "rgba(231, 76, 60, 0.15)" if action == "HALT" else "rgba(241, 196, 15, 0.15)"
                 border_color = "#e74c3c" if action == "HALT" else "#f1c40f"
                 text_color = "#e74c3c" if action == "HALT" else "#d35400"
@@ -1213,18 +1248,18 @@ elif page == "Agent Pulse":
                 <div style="border-left: 5px solid {border_color}; background: {bg_color}; padding: 0.8rem; border-radius: 4px; margin-bottom: 0.8rem; color: var(--text-primary);">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.3rem;">
                         <span style="font-weight: 800; color: {text_color}; font-size: 0.85rem;">GOAL DRIFT {action}</span>
-                        <span style="font-size: 0.75rem; color: var(--text-muted);">{alert.get('timestamp')[:19].replace('T', ' ')}</span>
+                        <span style="font-size: 0.75rem; color: var(--text-muted);">{alert_timestamp}</span>
                     </div>
                     <div style="font-size: 0.85rem; font-weight: 600; margin-bottom: 0.2rem;">
-                        Drift Score: {alert.get('score')}
+                        Drift Score: {alert_score}
                     </div>
                     <div style="font-size: 0.8rem; font-style: italic; color: var(--text-secondary); margin-bottom: 0.2rem;">
-                        "{alert.get('message_excerpt')}"
+                        "{alert_excerpt}"
                     </div>
                     <div style="font-size: 0.75rem; color: var(--text-muted);">
-                        Goal: {alert.get('goal')}
+                        Goal: {alert_goal}
                     </div>
-                    {f'<div style="font-size: 0.7rem; color: var(--text-muted); font-family: monospace;">Snapshot: {alert.get("snapshot_path")}</div>' if alert.get("snapshot_path") else ''}
+                    {f'<div style="font-size: 0.7rem; color: var(--text-muted); font-family: monospace;">Snapshot: {alert_snapshot}</div>' if alert.get("snapshot_path") else ''}
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -1247,9 +1282,16 @@ elif page == "Task Board":
                 submitted = st.form_submit_button("Create Task", use_container_width=True)
 
                 if submitted and new_title:
-                    tasks_manager.create_task(new_title, new_desc, new_assignee, new_priority)
-                    st.success(f"Task '{new_title}' created successfully!")
-                    st.rerun()
+                    try:
+                        created_task = tasks_manager.create_task(new_title, new_desc, new_assignee, new_priority)
+                        if not created_task:
+                            st.error("Task was not saved. Check storage permissions and server logs.")
+                        else:
+                            st.success("Task created successfully.")
+                            st.rerun()
+                    except Exception:
+                        logger.exception("Task creation failed")
+                        st.error("Task could not be created. Check the task data and server logs.")
                 elif submitted:
                     st.warning("Please enter a task title.")
 
@@ -1313,28 +1355,50 @@ elif page == "Task Board":
 
                     if status == "queued":
                         if btn_cols[1].button("Start", key=f"start_{task['id']}", use_container_width=True, help="Move task to In Progress"):
-                            tasks_manager.update_task_status(task['id'], "in_progress")
-                            st.rerun()
+                            try:
+                                if tasks_manager.update_task_status(task['id'], "in_progress"):
+                                    st.rerun()
+                                st.error("Task status was not updated. Check storage permissions and server logs.")
+                            except Exception:
+                                logger.exception("Failed to start task %s", task.get("id"))
+                                st.error("Task could not be started. Check its current status and server logs.")
                         if btn_cols[2].button("Delete", key=f"del_todo_{task['id']}", use_container_width=True, help="Permanently delete this task"):
-                            tasks_manager.delete_task(task['id'])
-                            st.rerun()
+                            try:
+                                if tasks_manager.delete_task(task['id']):
+                                    st.rerun()
+                                st.error("Task was not deleted. Check storage permissions and server logs.")
+                            except Exception:
+                                logger.exception("Failed to delete task %s", task.get("id"))
+                                st.error("Task could not be deleted. Check server logs.")
 
                     elif status == "in_progress":
                         # Cannot move back to queued legally in the data model
                         if btn_cols[1].button("Done", key=f"done_{task['id']}", use_container_width=True, help="Mark task as Completed"):
                             try:
-                                tasks_manager.update_task_status(task['id'], "done")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(str(e))
+                                if tasks_manager.update_task_status(task['id'], "done"):
+                                    st.rerun()
+                                st.error("Task was not marked done. Check completion criteria and server logs.")
+                            except Exception:
+                                logger.exception("Failed to mark task %s as done", task.get("id"))
+                                st.error("Task could not be marked done. Check completion criteria and server logs.")
                         if btn_cols[2].button("Delete", key=f"del_prog_{task['id']}", use_container_width=True, help="Permanently delete this task"):
-                            tasks_manager.delete_task(task['id'])
-                            st.rerun()
+                            try:
+                                if tasks_manager.delete_task(task['id']):
+                                    st.rerun()
+                                st.error("Task was not deleted. Check storage permissions and server logs.")
+                            except Exception:
+                                logger.exception("Failed to delete task %s", task.get("id"))
+                                st.error("Task could not be deleted. Check server logs.")
 
                     elif status == "done":
                         if btn_cols[2].button("Delete", key=f"del_done_{task['id']}", use_container_width=True, help="Permanently delete this task"):
-                            tasks_manager.delete_task(task['id'])
-                            st.rerun()
+                            try:
+                                if tasks_manager.delete_task(task['id']):
+                                    st.rerun()
+                                st.error("Task was not deleted. Check storage permissions and server logs.")
+                            except Exception:
+                                logger.exception("Failed to delete task %s", task.get("id"))
+                                st.error("Task could not be deleted. Check server logs.")
 
                 with st.expander("Activity Log", expanded=False):
                     comments = task.get("comments", [])
@@ -1367,7 +1431,7 @@ elif page == "Truth Source":
 
                 if scrape_btn:
                     if url_to_scrape:
-                        with st.spinner(f"Scraping {url_to_scrape}..."):
+                        with st.spinner(f"Scraping {html.escape(str(url_to_scrape))}..."):
                             filename = scraper_manager.fetch_and_save(url_to_scrape)
                             if filename:
                                 st.success(f"Saved as: {filename}")
@@ -1408,8 +1472,13 @@ elif page == "Truth Source":
             if is_admin:
                 with col_act:
                     if st.button("Delete", key=f"del_truth_{idx}", use_container_width=True):
-                        storage.delete_truth_file(fname)
-                        st.rerun()
+                        try:
+                            if storage.delete_truth_file(fname):
+                                st.rerun()
+                            st.error("Knowledge source was not deleted. Check storage permissions and server logs.")
+                        except Exception:
+                            logger.exception("Failed to delete knowledge source %s", safe_fname)
+                            st.error("Knowledge source could not be deleted. Check server logs.")
 
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
@@ -1679,20 +1748,29 @@ elif page == "Template Galleries":
     ]
 
     for t in templates:
-        st.markdown(f"### {t['name']}")
+        st.markdown(f"### {html.escape(str(t['name']))}")
         st.write(t['description'])
-        if st.button(f"Deploy {t['name']}", key=f"deploy_{t['name']}"):
-            try:
-                for task_def in t['tasks']:
-                    tasks_manager.create_task(
-                        title=task_def["title"],
-                        description=task_def["description"],
-                        priority=task_def["priority"],
-                        required_skills=task_def["required_skills"]
-                    )
-                st.success(f"Successfully deployed {t['name']} tasks!")
-            except Exception as e:
-                st.error(f"Failed to deploy template: {e}")
+        if is_admin:
+            if st.button(f"Deploy {t['name']}", key=f"deploy_{t['name']}"):
+                try:
+                    created = []
+                    for task_def in t['tasks']:
+                        task = tasks_manager.create_task(
+                            title=task_def["title"],
+                            description=task_def["description"],
+                            priority=task_def["priority"],
+                            required_skills=task_def["required_skills"]
+                        )
+                        if not task:
+                            raise RuntimeError("Task storage returned an unsuccessful result.")
+                        created.append(task)
+                    st.success(f"Successfully deployed {len(created)} tasks from {html.escape(str(t['name']))}.")
+                    st.rerun()
+                except Exception:
+                    logger.exception("Failed to deploy task template %s", t.get("name"))
+                    st.error("Template deployment did not complete. Check server logs; some tasks may already have been created.")
+        else:
+            st.caption("Administrator access is required to deploy templates.")
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
 # ─── AGENT CHAT PAGE ───────────────────────────────────
@@ -1793,9 +1871,14 @@ elif page == "Agent Chat":
                         "message": chat_input,
                         "status": "unread"
                     }
-                    storage.save_json(chat_file, msg_payload)
-                    st.success("Message sent to agent queue.")
-                    st.rerun()
+                    try:
+                        if storage.save_json(chat_file, msg_payload):
+                            st.success("Message sent to agent queue.")
+                            st.rerun()
+                        st.error("Message was not saved to the agent queue. Check storage permissions and server logs.")
+                    except Exception:
+                        logger.exception("Failed to enqueue chat message for agent %s", safe_selected_agent)
+                        st.error("Message could not be queued. Check server logs for details.")
 
 # ─── ROI DASHBOARD ─────────────────────────────────────
 elif page == "ROI Dashboard":

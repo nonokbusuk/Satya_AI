@@ -32,3 +32,10 @@ venv/
 satya_data/
 verification/
 *.log
+
+# Local databases, test artifacts, model data, and deployment backups
+*.db
+*.sqlite
+*.sqlite3
+.nltk_data/
+backups/

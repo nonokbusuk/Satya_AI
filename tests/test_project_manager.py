@@ -15,23 +15,27 @@ from satya.core import storage
 class TestProjectManager(unittest.TestCase):
     def setUp(self):
         self.test_dir = "test_pm_dir"
+        self.storage_names = ("ROOT_DIR", "SATYA_DIR", "TASKS_DIR", "TRUTH_DIR", "AGENTS_DIR", "HEARTBEATS_DIR", "PULSE_DIR", "GOALS_DIR",)
+        self.old_storage = {name: getattr(storage, name) for name in self.storage_names}
+        self.had_chat_dir = hasattr(storage, "CHAT_DIR")
+        self.old_chat_dir = getattr(storage, "CHAT_DIR", None)
         os.makedirs(self.test_dir, exist_ok=True)
+        storage.set_root(self.test_dir)
+        storage.CHAT_DIR = os.path.join(storage.SATYA_DIR, "chat")
+        os.makedirs(storage.CHAT_DIR, exist_ok=True)
 
-        # Override storage directories for tests
-        storage.SATYA_DIR = self.test_dir
-        storage.TASKS_DIR = os.path.join(self.test_dir, "tasks")
-        storage.TRUTH_DIR = os.path.join(self.test_dir, "truth")
-        storage.AGENTS_DIR = os.path.join(self.test_dir, "agents")
-        storage.HEARTBEATS_DIR = os.path.join(self.test_dir, "heartbeats")
-        storage.CHAT_DIR = os.path.join(self.test_dir, "chat")
-
-        storage.ensure_satya_dirs()
         self.tasks = Tasks(self.test_dir)
         self.orchestrator = AIOrchestrator(repo_path=self.test_dir, timeout_seconds=10)
 
     def tearDown(self):
         if os.path.exists(self.test_dir):
             shutil.rmtree(self.test_dir)
+        for name, value in self.old_storage.items():
+            setattr(storage, name, value)
+        if self.had_chat_dir:
+            storage.CHAT_DIR = self.old_chat_dir
+        elif hasattr(storage, "CHAT_DIR"):
+            delattr(storage, "CHAT_DIR")
 
     def test_reassign_dead_agent_task(self):
         # Create a task

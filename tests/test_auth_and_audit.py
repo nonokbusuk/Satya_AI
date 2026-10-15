@@ -1,19 +1,18 @@
-import os
 import json
+import multiprocessing
+import os
 import pytest
-import shutil
-from src.satya.auth import is_agent_authorized, is_human_authorized, sign_event, verify_event_chain, append_audit_event
+from importlib import reload
+
 from src.satya.sdk.client import SatyaClient
 from src.satya.core import storage
-
-from importlib import reload
 import src.satya.auth as auth
 
 @pytest.fixture(autouse=True)
 def setup_teardown(monkeypatch, tmp_path):
-    monkeypatch.setenv("SATYA_AGENT_KEYS", "test_key1,test_key2")
-    monkeypatch.setenv("HUMAN_VIEW_TOKEN", "admin_secret")
-    monkeypatch.setenv("AUDIT_SECRET", "test_audit_secret")
+    monkeypatch.setenv("SATYA_AGENT_KEYS", "root-test-agent-key-one-long-enough-123456,root-test-agent-key-two-long-enough-123456")
+    monkeypatch.setenv("HUMAN_VIEW_TOKEN", "root-test-human-token-long-enough-123456")
+    monkeypatch.setenv("AUDIT_SECRET", "root-unit-test-secret-at-least-32-characters-long")
 
     reload(auth)
 
@@ -22,15 +21,20 @@ def setup_teardown(monkeypatch, tmp_path):
     monkeypatch.setattr(storage, "TASKS_DIR", os.path.join(tmp_path, "satya_data", "tasks"))
     monkeypatch.setattr(storage, "TRUTH_DIR", os.path.join(tmp_path, "satya_data", "truth"))
     monkeypatch.setattr(storage, "AGENTS_DIR", os.path.join(tmp_path, "satya_data", "agents"))
+    monkeypatch.setattr(storage, "HEARTBEATS_DIR", os.path.join(tmp_path, "satya_data", "heartbeats"))
+    monkeypatch.setattr(storage, "PULSE_DIR", os.path.join(tmp_path, "satya_data", "pulse"))
+    monkeypatch.setattr(storage, "GOALS_DIR", os.path.join(tmp_path, "satya_data", "goals"))
     storage.ensure_satya_dirs()
     yield
-    # Cleanup implicitly done by tmp_path
+    # Restore environment and module-level auth cache before other tests run.
+    monkeypatch.undo()
+    reload(auth)
 
 def test_auth_checks():
-    assert auth.is_agent_authorized("test_key1") is True
+    assert auth.is_agent_authorized("root-test-agent-key-one-long-enough-123456") is True
     assert auth.is_agent_authorized("bad_key") is False
-    assert auth.is_human_authorized("admin_secret") is True
-    assert auth.is_human_authorized("wrong") is False
+    assert auth.is_human_authorized("root-test-human-token-long-enough-123456") is True
+    assert auth.is_human_authorized("root-test-human-token-long-enough-123456-wrong") is False
 
 def test_audit_event_append_and_verify():
     events_dir = os.path.join(storage.SATYA_DIR, "events")
@@ -55,12 +59,12 @@ def test_audit_event_append_and_verify():
     assert auth.verify_event_chain(events) is True
 
 def test_sdk_create_task_requires_auth(monkeypatch):
-    monkeypatch.setenv("SATYA_AGENT_KEY", "invalid_key")
+    monkeypatch.setenv("SATYA_AGENT_KEY", "root-invalid-agent-key-not-registered-123456")
     with pytest.raises(PermissionError):
         client = SatyaClient(agent_name="tester")
 
 def test_sdk_use_satya_audit_chain(monkeypatch):
-    monkeypatch.setenv("SATYA_AGENT_KEY", "test_key1")
+    monkeypatch.setenv("SATYA_AGENT_KEY", "root-test-agent-key-one-long-enough-123456")
     client = SatyaClient(agent_name="tester")
 
     events_dir = os.path.join(storage.SATYA_DIR, "events")
@@ -119,3 +123,93 @@ def test_sqlite_audit_store(monkeypatch, tmp_path):
     assert rows[0][1] == "task_db"
     assert rows[0][2] == "sqlite_test"
     assert rows[0][3] == sig
+
+
+def test_audit_signing_fails_closed_without_secret(monkeypatch):
+    monkeypatch.setattr(auth, "_AUDIT_SECRET", "")
+    assert auth.is_agent_authorized("root-test-agent-key-one-long-enough-123456") is True
+    with pytest.raises(ValueError, match="AUDIT_SECRET"):
+        auth.sign_event('{"action":"test"}')
+    assert auth.verify_event_chain([]) is False
+
+
+def _parallel_audit_writer(data_root, worker_id, number_of_events):
+    from src.satya.core import storage as child_storage
+    import src.satya.auth as child_auth
+
+    child_storage.SATYA_DIR = data_root
+    child_storage.TASKS_DIR = os.path.join(data_root, "tasks")
+    child_storage.TRUTH_DIR = os.path.join(data_root, "truth")
+    child_storage.AGENTS_DIR = os.path.join(data_root, "agents")
+    child_storage.HEARTBEATS_DIR = os.path.join(data_root, "heartbeats")
+    child_storage.PULSE_DIR = os.path.join(data_root, "pulse")
+    child_storage.GOALS_DIR = os.path.join(data_root, "goals")
+    child_storage.ensure_satya_dirs()
+
+    for event_no in range(number_of_events):
+        child_auth.append_audit_event(
+            f"agent-{worker_id}",
+            f"task-{event_no}",
+            f"trace-{worker_id}-{event_no}",
+            "parallel_test",
+            f"worker={worker_id};event={event_no}",
+        )
+
+
+@pytest.mark.skipif(
+    "fork" not in multiprocessing.get_all_start_methods(),
+    reason="cross-process flock test requires the POSIX fork start method",
+)
+def test_audit_chain_is_valid_under_concurrent_processes(tmp_path):
+    context = multiprocessing.get_context("fork")
+    workers = 4
+    events_per_worker = 15
+    data_root = os.path.join(tmp_path, "satya_data")
+    processes = [
+        context.Process(
+            target=_parallel_audit_writer,
+            args=(data_root, worker_id, events_per_worker),
+        )
+        for worker_id in range(workers)
+    ]
+
+    for process in processes:
+        process.start()
+    for process in processes:
+        process.join(timeout=20)
+        assert not process.is_alive(), "audit writer process did not exit"
+        assert process.exitcode == 0
+
+    events_file = os.path.join(data_root, "events", "audit_log.jsonl")
+    with open(events_file, "r", encoding="utf-8") as handle:
+        events = [json.loads(line) for line in handle if line.strip()]
+
+    assert len(events) == workers * events_per_worker
+    assert auth.verify_event_chain(events) is True
+
+
+def test_audit_rejects_stale_parent_signature(monkeypatch):
+    first = auth.append_audit_event("agent", "task", "trace", "first", "first event")
+    auth.append_audit_event("agent", "task", "trace", "second", "second event")
+    with pytest.raises(ValueError, match="current audit-log tail"):
+        auth.append_audit_event(
+            "agent", "task", "trace", "third", "stale parent", prev_hmac=first
+        )
+
+
+def test_weak_agent_and_human_secrets_are_rejected(monkeypatch):
+    assert auth.is_agent_authorized("test_key1") is False
+    assert auth.is_agent_authorized("DEMO_KEY") is False
+    assert auth.is_human_authorized("admin_secret") is False
+
+    monkeypatch.setenv("SATYA_AGENT_KEYS", "DEMO_KEY")
+    reload(auth)
+    assert auth.is_agent_authorized("DEMO_KEY") is False
+
+
+def test_missing_agent_and_human_secrets_deny_access(monkeypatch):
+    monkeypatch.setenv("SATYA_AGENT_KEYS", "")
+    monkeypatch.setenv("HUMAN_VIEW_TOKEN", "")
+    reload(auth)
+    assert auth.is_agent_authorized("root-test-agent-key-one-long-enough-123456") is False
+    assert auth.is_human_authorized("root-test-human-token-long-enough-123456") is False

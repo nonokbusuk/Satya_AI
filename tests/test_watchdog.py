@@ -6,26 +6,21 @@ from src.satya.core.tasks import Tasks, STATUS_IN_PROGRESS, STATUS_DONE
 from src.satya.core.watchdog import WatchdogChecker
 
 @pytest.fixture
-def temp_watchdog():
-    repo_path = "test_repo_watchdog"
+def temp_watchdog(tmp_path):
+    repo_path = str(tmp_path / "test_repo_watchdog")
     os.makedirs(repo_path, exist_ok=True)
 
     import src.satya.core.storage as storage
-    old_dir = storage.SATYA_DIR
-    storage.SATYA_DIR = os.path.join(repo_path, "satya_data")
-    storage.TASKS_DIR = os.path.join(storage.SATYA_DIR, "tasks")
-    storage.TRUTH_DIR = os.path.join(storage.SATYA_DIR, "truth")
-    storage.AGENTS_DIR = os.path.join(storage.SATYA_DIR, "agents")
-
-    checker = WatchdogChecker(repo_path)
-
-    yield checker
-
-    shutil.rmtree(repo_path)
-    storage.SATYA_DIR = old_dir
-    storage.TASKS_DIR = os.path.join(storage.SATYA_DIR, "tasks")
-    storage.TRUTH_DIR = os.path.join(storage.SATYA_DIR, "truth")
-    storage.AGENTS_DIR = os.path.join(storage.SATYA_DIR, "agents")
+    storage_names = ("ROOT_DIR", "SATYA_DIR", "TASKS_DIR", "TRUTH_DIR", "AGENTS_DIR", "HEARTBEATS_DIR", "PULSE_DIR", "GOALS_DIR",)
+    old_storage = {name: getattr(storage, name) for name in storage_names}
+    storage.set_root(repo_path)
+    try:
+        checker = WatchdogChecker(repo_path)
+        yield checker
+    finally:
+        shutil.rmtree(repo_path, ignore_errors=True)
+        for name, value in old_storage.items():
+            setattr(storage, name, value)
 
 
 def test_stale_task_detected_after_time_limit(temp_watchdog):

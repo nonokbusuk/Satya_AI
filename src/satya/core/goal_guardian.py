@@ -366,7 +366,7 @@ class GoalGuardian:
 # Goal State Persistence (so goal survives agent restarts)
 # ──────────────────────────────────────────────────────────
 
-def save_goal(agent_name: str, goal: str, threshold: float = 0.20, halt_threshold: float = 0.10) -> str:
+def save_goal(agent_name: str, goal: str, threshold: float = 0.20, halt_threshold: float = 0.10) -> Optional[str]:
     """
     Persists an agent's goal to disk so it can be restored on restart.
     Returns the path to the goal file.
@@ -386,7 +386,8 @@ def save_goal(agent_name: str, goal: str, threshold: float = 0.20, halt_threshol
         "halt_threshold": halt_threshold,
         "set_at": datetime.now(timezone.utc).isoformat(),
     }
-    storage.save_json(filepath, goal_data)
+    if not storage.save_json(filepath, goal_data):
+        return None
     return filepath
 
 
