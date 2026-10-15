@@ -1,26 +1,22 @@
+import os
 import pytest
 import pytest_asyncio
-import asyncio
+
+# These are test-only values. Never copy them into a deployed environment.
+os.environ.setdefault("SATYA_AGENT_KEYS", "nested-ci-agent-key-not-for-production")
+os.environ.setdefault("AUDIT_SECRET", "nested-ci-audit-secret-at-least-32-characters-long")
+os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from satya.database import Base, get_db
 from satya.main import app
 from httpx import AsyncClient, ASGITransport
 from satya.core.audit_logger import AuditLogger
 
-TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
-
-@pytest_asyncio.fixture(scope="session")
-def event_loop():
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
 
 @pytest_asyncio.fixture(scope="function")
 async def db_engine():
-    # Needs to be a fresh memory DB per test so things don't clash, but more importantly,
-    # we need the same engine for the override and the mock. Let's use file memory DB to share it across threads
-    # because aiosqlite :memory: is per-connection by default.
-    engine = create_async_engine("sqlite+aiosqlite:///file:memdb1?mode=memory&cache=shared", echo=False)
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield engine
@@ -28,22 +24,20 @@ async def db_engine():
         await conn.run_sync(Base.metadata.drop_all)
     await engine.dispose()
 
+
 @pytest_asyncio.fixture(scope="function")
 async def db_session(db_engine):
     AsyncSessionLocal = async_sessionmaker(
-        bind=db_engine,
-        class_=AsyncSession,
-        expire_on_commit=False
+        bind=db_engine, class_=AsyncSession, expire_on_commit=False
     )
     async with AsyncSessionLocal() as session:
         yield session
 
+
 @pytest_asyncio.fixture(scope="function")
-async def client(db_engine, db_session, monkeypatch):
+async def client(db_engine, monkeypatch):
     AsyncSessionLocalTest = async_sessionmaker(
-        bind=db_engine,
-        class_=AsyncSession,
-        expire_on_commit=False
+        bind=db_engine, class_=AsyncSession, expire_on_commit=False
     )
 
     async def override_get_db():
@@ -51,8 +45,6 @@ async def client(db_engine, db_session, monkeypatch):
             yield session
 
     app.dependency_overrides[get_db] = override_get_db
-
-    # We must also mock AsyncSessionLocal used in AgentRegistry and AuditLogger
     monkeypatch.setattr("satya.core.agent_registry.AsyncSessionLocal", AsyncSessionLocalTest)
     monkeypatch.setattr("satya.core.audit_logger.AsyncSessionLocal", AsyncSessionLocalTest)
 
@@ -62,7 +54,7 @@ async def client(db_engine, db_session, monkeypatch):
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        ac.headers["X-Satya-Key"] = "DEMO_KEY"
+        ac.headers["X-Satya-Key"] = os.environ["SATYA_AGENT_KEYS"].split(",")[0]
         yield ac
 
     await audit_logger.stop()

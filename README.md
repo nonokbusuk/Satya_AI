@@ -153,9 +153,9 @@ Modern AI agents work autonomously — but humans still need visibility. **Satya
 
 ## Env variables (minimum)
 
-- `SATYA_AGENT_KEYS` (comma-separated agent keys). e.g. `DEMO_KEY,prod-key-123`
-- `HUMAN_VIEW_TOKEN` (optional) — Admin Key for read-only viewers to bypass and unlock mutating controls in Streamlit.
-- `AUDIT_SECRET` — HMAC secret for signing events
+- `SATYA_AGENT_KEYS` — comma-separated unique agent keys. Use a randomly generated key of at least 32 characters; never use `DEMO_KEY` or `prod-key-123` in a deployed environment.
+- `HUMAN_VIEW_TOKEN` (optional) — randomly generated admin token for unlocking mutating controls in Streamlit. Without it, the dashboard remains read-only.
+- `AUDIT_SECRET` — independent random HMAC secret of at least 32 characters for signing audit events. Keep it separate from agent keys and never commit it.
 
 ---
 

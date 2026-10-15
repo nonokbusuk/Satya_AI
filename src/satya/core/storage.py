@@ -16,12 +16,13 @@ PULSE_DIR = os.path.join(SATYA_DIR, "pulse")
 GOALS_DIR = os.path.join(SATYA_DIR, "goals")
 
 def set_root(path):
-    global ROOT_DIR, SATYA_DIR, TASKS_DIR, TRUTH_DIR, AGENTS_DIR, PULSE_DIR, GOALS_DIR
+    global ROOT_DIR, SATYA_DIR, TASKS_DIR, TRUTH_DIR, AGENTS_DIR, HEARTBEATS_DIR, PULSE_DIR, GOALS_DIR
     ROOT_DIR = path
     SATYA_DIR = os.path.join(ROOT_DIR, "satya_data")
     TASKS_DIR = os.path.join(SATYA_DIR, "tasks")
     TRUTH_DIR = os.path.join(SATYA_DIR, "truth")
     AGENTS_DIR = os.path.join(SATYA_DIR, "agents")
+    HEARTBEATS_DIR = os.path.join(SATYA_DIR, "heartbeats")
     PULSE_DIR = os.path.join(SATYA_DIR, "pulse")
     GOALS_DIR = os.path.join(SATYA_DIR, "goals")
     ensure_satya_dirs()

@@ -58,8 +58,8 @@ Satya AI is designed to be self-hosted. Use the provided `docker-compose.yml` to
 
 | Environment Variable | Description | Default |
 |----------------------|-------------|---------|
-| `SATYA_AGENT_KEYS` | Comma-separated API keys | `DEMO_KEY` |
-| `AUDIT_SECRET` | Secret for audit logs | (Required) |
+| `SATYA_AGENT_KEYS` | Comma-separated unique API keys, each at least 32 characters; sample/default keys are rejected | Generate a random key locally; never use `DEMO_KEY` |
+| `AUDIT_SECRET` | Independent random audit signing secret, at least 32 characters | Generate a separate random secret; keep it private |
 | `DATABASE_URL` | Async SQLAlchemy URL | SQLite fallback |
 
 ## Contributing

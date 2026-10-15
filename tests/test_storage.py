@@ -1,24 +1,10 @@
 import os
 import shutil
 import unittest
-from unittest.mock import patch, MagicMock
-import json
+from unittest.mock import patch
 import sys
-from types import ModuleType
 
-# Mock 'requests' and other potentially missing dependencies
-sys.modules['requests'] = ModuleType('requests')
-bs4_mock = ModuleType('bs4')
-bs4_mock.BeautifulSoup = MagicMock()
-sys.modules['bs4'] = bs4_mock
-sys.modules['markdownify'] = ModuleType('markdownify')
-sys.modules['git'] = ModuleType('git')
-sys.modules['pandas'] = ModuleType('pandas')
-sys.modules['streamlit'] = ModuleType('streamlit')
-
-# Ensure src is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
-
 from satya.core.storage import save_json, load_json, ensure_satya_dirs
 
 class TestStorage(unittest.TestCase):
@@ -62,10 +48,16 @@ class TestStorage(unittest.TestCase):
 
     def test_ensure_satya_dirs(self):
         import satya.core.storage as storage
-        with patch.multiple(storage,
-                          TASKS_DIR=os.path.join(self.test_dir, "tasks"),
-                          TRUTH_DIR=os.path.join(self.test_dir, "truth"),
-                          AGENTS_DIR=os.path.join(self.test_dir, "agents")):
+        with patch.multiple(
+            storage,
+            SATYA_DIR=self.test_dir,
+            TASKS_DIR=os.path.join(self.test_dir, "tasks"),
+            TRUTH_DIR=os.path.join(self.test_dir, "truth"),
+            AGENTS_DIR=os.path.join(self.test_dir, "agents"),
+            HEARTBEATS_DIR=os.path.join(self.test_dir, "heartbeats"),
+            PULSE_DIR=os.path.join(self.test_dir, "pulse"),
+            GOALS_DIR=os.path.join(self.test_dir, "goals"),
+        ):
             ensure_satya_dirs()
 
             self.assertTrue(os.path.exists(os.path.join(self.test_dir, "tasks")))

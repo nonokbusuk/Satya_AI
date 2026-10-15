@@ -24,9 +24,9 @@ pip install streamlit beautifulsoup4 markdownify requests pandas gitpython
 ### 2. Export the minimum auth settings
 
 ```bash
-export SATYA_AGENT_KEYS=DEMO_KEY
-export SATYA_AGENT_KEY=DEMO_KEY
-export AUDIT_SECRET=basic-workflow-secret
+export SATYA_AGENT_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+export SATYA_AGENT_KEYS="$SATYA_AGENT_KEY"
+export AUDIT_SECRET="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
 ```
 
 ### 3. Start the dashboard
@@ -64,4 +64,4 @@ python examples/basic_workflow/run_example.py \
 
 - The example uses `https://example.com` because it is a stable public page that works well for a scraper demo.
 - Scraping requires outbound network access. If the request fails, the workflow still shows task creation, logging, picking, and task completion behavior.
-- The example sets development defaults for `SATYA_AGENT_KEYS`, `SATYA_AGENT_KEY`, and `AUDIT_SECRET` if they are not already exported, but the commands above make the runtime requirements explicit.
+- The example does not set authentication defaults. Set unique `SATYA_AGENT_KEY`, `SATYA_AGENT_KEYS`, and `AUDIT_SECRET` values in the environment before running it; missing or weak credentials are rejected.

@@ -55,5 +55,8 @@ async def evaluate(request: Request, eval_req: EvaluateRequest):
         return result
 
     except Exception as e:
-        logger.error(f"Evaluation error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Evaluation failed; details retained in server logs")
+        raise HTTPException(
+            status_code=500,
+            detail="Evaluation failed. Check server logs using the request timestamp.",
+        ) from e

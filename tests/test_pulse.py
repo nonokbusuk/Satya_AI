@@ -1,20 +1,9 @@
 import os
 import shutil
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 import sys
-from types import ModuleType
 from datetime import datetime, timezone, timedelta
-
-# Ensure mock dependencies are loaded to avoid import errors in other modules
-sys.modules['requests'] = ModuleType('requests')
-bs4_mock = ModuleType('bs4')
-bs4_mock.BeautifulSoup = MagicMock()
-sys.modules['bs4'] = bs4_mock
-sys.modules['markdownify'] = ModuleType('markdownify')
-sys.modules['git'] = ModuleType('git')
-sys.modules['pandas'] = ModuleType('pandas')
-sys.modules['streamlit'] = ModuleType('streamlit')
 
 # Ensure src is in path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
@@ -25,12 +14,19 @@ from satya.core import storage
 class TestPulse(unittest.TestCase):
     def setUp(self):
         self.test_dir = "test_pulse_dir"
+        self.storage_names = (
+            "ROOT_DIR", "SATYA_DIR", "TASKS_DIR", "TRUTH_DIR", "AGENTS_DIR",
+            "HEARTBEATS_DIR", "PULSE_DIR", "GOALS_DIR",
+        )
+        self.old_storage = {name: getattr(storage, name) for name in self.storage_names}
         os.makedirs(self.test_dir, exist_ok=True)
         storage.set_root(self.test_dir)
 
     def tearDown(self):
         if os.path.exists(self.test_dir):
             shutil.rmtree(self.test_dir)
+        for name, value in self.old_storage.items():
+            setattr(storage, name, value)
 
     def test_compute_agent_health_empty(self):
         result = compute_agent_health("test_agent", [])

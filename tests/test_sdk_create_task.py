@@ -1,6 +1,5 @@
 import pytest
 import os
-import os
 import src.satya.core.storage as storage
 from src.satya.sdk.client import SatyaClient
 from importlib import reload
@@ -8,32 +7,29 @@ import src.satya.auth as auth
 
 @pytest.fixture
 def temp_client(monkeypatch, tmp_path):
-    monkeypatch.setenv("SATYA_AGENT_KEY", "DEMO_KEY")
-    monkeypatch.setenv("SATYA_AGENT_KEYS", "DEMO_KEY")
+    monkeypatch.setenv("SATYA_AGENT_KEY", "root-sdk-test-agent-key-long-enough-123456")
+    monkeypatch.setenv("SATYA_AGENT_KEYS", "root-sdk-test-agent-key-long-enough-123456")
     reload(auth)
 
     repo_path = str(tmp_path)
 
-    # Save original storage paths
-    old_vars = {
-        "SATYA_DIR": storage.SATYA_DIR,
-        "TASKS_DIR": storage.TASKS_DIR,
-        "TRUTH_DIR": storage.TRUTH_DIR,
-        "AGENTS_DIR": storage.AGENTS_DIR,
-    }
+    # Isolate every storage path, including heartbeat/pulse/goal data.
+    storage_names = (
+        "ROOT_DIR", "SATYA_DIR", "TASKS_DIR", "TRUTH_DIR", "AGENTS_DIR",
+        "HEARTBEATS_DIR", "PULSE_DIR", "GOALS_DIR",
+    )
+    old_vars = {name: getattr(storage, name) for name in storage_names}
+    storage.set_root(repo_path)
 
-    # Mock storage paths
-    storage.SATYA_DIR = os.path.join(repo_path, "satya_data")
-    storage.TASKS_DIR = os.path.join(storage.SATYA_DIR, "tasks")
-    storage.TRUTH_DIR = os.path.join(storage.SATYA_DIR, "truth")
-    storage.AGENTS_DIR = os.path.join(storage.SATYA_DIR, "agents")
-
-    client = SatyaClient(agent_name="test_agent", repo_path=repo_path)
-    yield client
-
-    # Restore original storage paths
-    for var, value in old_vars.items():
-        setattr(storage, var, value)
+    try:
+        client = SatyaClient(agent_name="test_agent", repo_path=repo_path)
+        yield client
+    finally:
+        for var, value in old_vars.items():
+            setattr(storage, var, value)
+        # Restore process environment before reloading cached module-level auth config.
+        monkeypatch.undo()
+        reload(auth)
 
 def test_create_task_description_too_short(temp_client):
     with pytest.raises(ValueError, match="Governance Error: Task description must be at least 10 characters."):
@@ -57,3 +53,11 @@ def test_create_task_valid_description(temp_client):
     assert task["title"] == "Test Task"
     assert task["description"] == "This is a long enough description."
     assert task["id"] is not None
+
+
+def test_set_goal_fails_clearly_when_persistence_fails(temp_client, monkeypatch):
+    import src.satya.sdk.client as client_module
+
+    monkeypatch.setattr(client_module, "save_goal", lambda *args, **kwargs: None)
+    with pytest.raises(OSError, match="goal was not persisted"):
+        temp_client.set_goal("A project goal long enough for validation")

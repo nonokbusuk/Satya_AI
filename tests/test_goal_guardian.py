@@ -1,26 +1,8 @@
 import os
 import shutil
 import unittest
-from unittest.mock import patch, MagicMock
 import sys
-from types import ModuleType
-
-# Use existing mocked modules from conftest or default to MagicMock if not present
-if 'requests' not in sys.modules or not hasattr(sys.modules['requests'], 'post'):
-    from unittest.mock import MagicMock
-    sys.modules['requests'] = MagicMock()
-if 'bs4' not in sys.modules:
-    bs4_mock = MagicMock()
-    sys.modules['bs4'] = bs4_mock
-if 'markdownify' not in sys.modules:
-    sys.modules['markdownify'] = MagicMock()
-if 'git' not in sys.modules:
-    sys.modules['git'] = MagicMock()
-if 'pandas' not in sys.modules:
-    sys.modules['pandas'] = MagicMock()
-if 'streamlit' not in sys.modules:
-    sys.modules['streamlit'] = MagicMock()
-
+import importlib
 
 # Ensure src is in path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
@@ -32,21 +14,37 @@ from satya.core import storage
 class TestGoalGuardian(unittest.TestCase):
     def setUp(self):
         self.test_dir = "test_goals_dir"
+        self.storage_names = (
+            "ROOT_DIR", "SATYA_DIR", "TASKS_DIR", "TRUTH_DIR", "AGENTS_DIR",
+            "HEARTBEATS_DIR", "PULSE_DIR", "GOALS_DIR",
+        )
+        self.old_storage = {name: getattr(storage, name) for name in self.storage_names}
+        self.old_env = {
+            name: os.environ.get(name)
+            for name in ("SATYA_AGENT_KEY", "SATYA_AGENT_KEYS", "AUDIT_SECRET", "HUMAN_VIEW_TOKEN")
+        }
         os.makedirs(self.test_dir, exist_ok=True)
         storage.set_root(self.test_dir)
-        
-        # set up mock agent key env var
-        os.environ["SATYA_AGENT_KEY"] = "DEMO_KEY"
-        # Mock auth verification to keep it simple
-        self.auth_patcher = patch("satya.auth.require_agent")
-        self.mock_require_agent = self.auth_patcher.start()
+
+        test_key = "goal-guardian-test-agent-key-long-enough-123"
+        os.environ["SATYA_AGENT_KEY"] = test_key
+        os.environ["SATYA_AGENT_KEYS"] = test_key
+        os.environ["AUDIT_SECRET"] = "goal-guardian-test-audit-secret-long-enough-123456"
+        import satya.auth as auth
+        importlib.reload(auth)
 
     def tearDown(self):
-        self.auth_patcher.stop()
-        if os.environ.get("SATYA_AGENT_KEY"):
-            del os.environ["SATYA_AGENT_KEY"]
+        for name, value in self.old_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        import satya.auth as auth
+        importlib.reload(auth)
         if os.path.exists(self.test_dir):
             shutil.rmtree(self.test_dir)
+        for name, value in self.old_storage.items():
+            setattr(storage, name, value)
 
     def test_save_and_load_goal(self):
         agent = "test_agent"
@@ -98,3 +96,12 @@ class TestGoalGuardian(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_save_goal_reports_persistence_failure(monkeypatch, tmp_path):
+    from src.satya.core import storage
+    from src.satya.core.goal_guardian import save_goal
+
+    monkeypatch.setattr(storage, "SATYA_DIR", str(tmp_path / "satya_data"))
+    monkeypatch.setattr(storage, "save_json", lambda *args, **kwargs: False)
+    assert save_goal("agent-test", "A sufficiently detailed test goal") is None

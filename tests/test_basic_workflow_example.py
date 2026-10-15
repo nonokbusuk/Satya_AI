@@ -15,14 +15,19 @@ def example_module():
     return module
 
 
-def test_basic_workflow_example_runs(monkeypatch, tmp_path, example_module):
-    monkeypatch.setenv("SATYA_AGENT_KEYS", "DEMO_KEY")
-    monkeypatch.setenv("SATYA_AGENT_KEY", "DEMO_KEY")
-    monkeypatch.setenv("AUDIT_SECRET", "test_audit_secret")
+def test_basic_workflow_example_runs(monkeypatch, tmp_path, request, example_module):
+    monkeypatch.setenv("SATYA_AGENT_KEYS", "root-basic-example-agent-key-long-enough-123456")
+    monkeypatch.setenv("SATYA_AGENT_KEY", "root-basic-example-agent-key-long-enough-123456")
+    monkeypatch.setenv("AUDIT_SECRET", "basic-workflow-test-audit-secret-at-least-32-characters")
 
     import importlib
     import satya.auth as auth
     importlib.reload(auth)
+
+    def restore_auth_module():
+        monkeypatch.undo()
+        importlib.reload(auth)
+    request.addfinalizer(restore_auth_module)
 
     from satya.sdk.client import SatyaClient
 
