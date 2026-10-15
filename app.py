@@ -547,7 +547,10 @@ def get_priority_badge(priority):
     return f'<span class="priority-badge badge-{p}">{html.escape(priority or "Medium")}</span>'
 
 def get_priority_class(priority):
-    return f"priority-{html.escape((priority or 'medium').lower())}"
+    normalized = str(priority or "medium").strip().lower()
+    if normalized not in {"low", "medium", "high", "critical"}:
+        normalized = "medium"
+    return f"priority-{normalized}"
 
 def parse_iso(iso_str):
     """Robust ISO parser that handles Z and ensures timezone awareness."""
