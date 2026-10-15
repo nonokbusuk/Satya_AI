@@ -1,6 +1,5 @@
 import pytest
 import os
-import os
 import src.satya.core.storage as storage
 from src.satya.sdk.client import SatyaClient
 from importlib import reload
@@ -54,3 +53,11 @@ def test_create_task_valid_description(temp_client):
     assert task["title"] == "Test Task"
     assert task["description"] == "This is a long enough description."
     assert task["id"] is not None
+
+
+def test_set_goal_fails_clearly_when_persistence_fails(temp_client, monkeypatch):
+    import src.satya.sdk.client as client_module
+
+    monkeypatch.setattr(client_module, "save_goal", lambda *args, **kwargs: None)
+    with pytest.raises(OSError, match="goal was not persisted"):
+        temp_client.set_goal("A project goal long enough for validation")
